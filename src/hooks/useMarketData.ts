@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { MergedDataPoint } from '../lib/types';
 import { fetchCoinGecko, fetchYahooETF } from '../lib/api';
 import { mergeTimeSeries } from '../lib/mergeTimeSeries';
@@ -16,23 +16,39 @@ export function useMarketData(days: number): UseMarketDataReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [etfWarning, setEtfWarning] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(async () => {
+    // Cancel any in-flight request (handles StrictMode double-invoke)
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setIsLoading(true);
     setError(null);
     setEtfWarning(false);
 
     try {
-      const [btcData, ethData, fbtcData, fethData] = await Promise.allSettled([
-        fetchCoinGecko('bitcoin', days),
+      // Stagger CoinGecko calls slightly to avoid rate limits
+      const btcData = await fetchCoinGecko('bitcoin', days).then(
+        (v) => ({ status: 'fulfilled' as const, value: v }),
+        (e) => ({ status: 'rejected' as const, reason: e }),
+      );
+
+      if (controller.signal.aborted) return;
+
+      const [ethData, fbtcData, fethData] = await Promise.allSettled([
         fetchCoinGecko('ethereum', days),
         fetchYahooETF('FBTC', days),
         fetchYahooETF('FETH', days),
       ]);
 
-      // If both crypto fetches failed, show error
+      if (controller.signal.aborted) return;
+
+      // If both crypto fetches failed, show the actual error
       if (btcData.status === 'rejected' && ethData.status === 'rejected') {
-        setError('Failed to fetch cryptocurrency data. Please try again.');
+        const reason = btcData.reason?.message || 'Unknown error';
+        setError(`Failed to fetch crypto data: ${reason}`);
         setIsLoading(false);
         return;
       }
@@ -44,15 +60,23 @@ export function useMarketData(days: number): UseMarketDataReturn {
 
       const merged = mergeTimeSeries({ btcData, ethData, fbtcData, fethData });
       setData(merged);
-    } catch {
-      setError('Failed to fetch market data. Please try again.');
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        setError(`Failed to fetch market data: ${msg}`);
+      }
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
+      }
     }
   }, [days]);
 
   useEffect(() => {
     fetchData();
+    return () => {
+      abortRef.current?.abort();
+    };
   }, [fetchData]);
 
   return { data, isLoading, error, etfWarning, refetch: fetchData };
