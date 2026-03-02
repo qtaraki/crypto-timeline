@@ -1,8 +1,8 @@
 import type { CoinGeckoResponse, YahooChartResponse } from './types';
-import { COINGECKO_BASE, YAHOO_BASE, DEFAULT_CORS_PROXY, YAHOO_RANGE_MAP } from './constants';
+import { COINGECKO_BASE, YAHOO_BASE_DIRECT, YAHOO_BASE_PROXY, YAHOO_RANGE_MAP } from './constants';
 
-const CORS_PROXY = import.meta.env.VITE_CORS_PROXY_URL || DEFAULT_CORS_PROXY;
 const CG_API_KEY = import.meta.env.VITE_COINGECKO_API_KEY || '';
+const isDev = import.meta.env.DEV;
 
 export async function fetchCoinGecko(
   coinId: 'bitcoin' | 'ethereum',
@@ -32,9 +32,13 @@ export async function fetchYahooETF(
   days: number,
 ): Promise<YahooChartResponse> {
   const range = YAHOO_RANGE_MAP[days] || '1mo';
-  const targetUrl = `${YAHOO_BASE}/${symbol}?range=${range}&interval=1d`;
-  const proxiedUrl = `${CORS_PROXY}${encodeURIComponent(targetUrl)}`;
-  const res = await fetch(proxiedUrl);
+
+  // In dev, Vite proxy handles CORS. In prod, try direct (works if served
+  // behind a reverse proxy) then fall back to a configurable CORS proxy.
+  const base = isDev ? YAHOO_BASE_PROXY : (import.meta.env.VITE_YAHOO_BASE_URL || YAHOO_BASE_DIRECT);
+  const url = `${base}/${symbol}?range=${range}&interval=1d`;
+
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Yahoo Finance error: ${res.status}`);
   return res.json();
 }
