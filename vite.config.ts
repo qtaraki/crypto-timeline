@@ -6,6 +6,16 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
+      '/api/coingecko': {
+        target: 'https://api.coingecko.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/coingecko/, ''),
+      },
+      '/api/cryptocompare': {
+        target: 'https://min-api.cryptocompare.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/cryptocompare/, ''),
+      },
       '/api/yahoo': {
         target: 'https://query1.finance.yahoo.com',
         changeOrigin: true,

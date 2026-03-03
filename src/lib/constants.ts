@@ -1,8 +1,5 @@
 import type { SeriesKey } from './types';
 
-export const YAHOO_BASE_DIRECT = 'https://query1.finance.yahoo.com/v8/finance/chart';
-export const YAHOO_BASE_PROXY = '/api/yahoo/v8/finance/chart';
-
 export const RANGES = [
   { label: '7D', days: 7 },
   { label: '30D', days: 30 },

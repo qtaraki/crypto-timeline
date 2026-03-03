@@ -1,11 +1,22 @@
 import type { PriceSeries, YahooChartResponse } from './types';
-import { YAHOO_BASE_DIRECT, YAHOO_BASE_PROXY, YAHOO_RANGE_MAP } from './constants';
+import { YAHOO_RANGE_MAP } from './constants';
 
 const isDev = import.meta.env.DEV;
 
+const COINGECKO_BASE = isDev
+  ? '/api/coingecko/api/v3'
+  : 'https://api.coingecko.com/api/v3';
+
+const CRYPTOCOMPARE_BASE = isDev
+  ? '/api/cryptocompare'
+  : 'https://min-api.cryptocompare.com';
+
+const YAHOO_BASE = isDev
+  ? '/api/yahoo/v8/finance/chart'
+  : 'https://query1.finance.yahoo.com/v8/finance/chart';
+
 // ---------------------------------------------------------------------------
 // Crypto: fallback chain  CoinGecko → CryptoCompare
-// All free, no API key, browser CORS supported.
 // ---------------------------------------------------------------------------
 
 const CRYPTO_SYMBOLS = {
@@ -34,27 +45,27 @@ export async function fetchCryptoPrices(coinId: CoinId, days: number): Promise<P
   throw lastError ?? new Error('All crypto data sources failed');
 }
 
-// --- CoinGecko (free, no key, CORS) ---
+// --- CoinGecko ---
 
 async function fetchFromCoinGecko(coinId: CoinId, days: number): Promise<PriceSeries> {
   const id = CRYPTO_SYMBOLS[coinId].coingecko;
-  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
+  const url = `${COINGECKO_BASE}/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
   const data: { prices: [number, number][] } = await res.json();
   return dedupeByDate(data.prices.map(([ts, price]) => [msToDate(ts), price]));
 }
 
-// --- CryptoCompare (free, no key, CORS) ---
+// --- CryptoCompare ---
 
 interface CryptoCompareDay {
-  time: number; // unix seconds
+  time: number;
   close: number;
 }
 
 async function fetchFromCryptoCompare(coinId: CoinId, days: number): Promise<PriceSeries> {
   const fsym = CRYPTO_SYMBOLS[coinId].cryptocompare;
-  const url = `https://min-api.cryptocompare.com/data/v2/histoday?fsym=${fsym}&tsym=USD&limit=${days}`;
+  const url = `${CRYPTOCOMPARE_BASE}/data/v2/histoday?fsym=${fsym}&tsym=USD&limit=${days}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`CryptoCompare ${res.status}`);
   const json: { Response: string; Data: { Data: CryptoCompareDay[] } } = await res.json();
@@ -63,7 +74,7 @@ async function fetchFromCryptoCompare(coinId: CoinId, days: number): Promise<Pri
 }
 
 // ---------------------------------------------------------------------------
-// ETFs: Yahoo Finance (via Vite proxy in dev)
+// ETFs: Yahoo Finance
 // ---------------------------------------------------------------------------
 
 export async function fetchYahooETF(
@@ -71,10 +82,7 @@ export async function fetchYahooETF(
   days: number,
 ): Promise<YahooChartResponse> {
   const range = YAHOO_RANGE_MAP[days] || '1mo';
-  const base = isDev
-    ? YAHOO_BASE_PROXY
-    : (import.meta.env.VITE_YAHOO_BASE_URL || YAHOO_BASE_DIRECT);
-  const url = `${base}/${symbol}?range=${range}&interval=1d`;
+  const url = `${YAHOO_BASE}/${symbol}?range=${range}&interval=1d`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`);
   return res.json();
@@ -92,7 +100,6 @@ function secToDate(sec: number): string {
   return new Date(sec * 1000).toISOString().slice(0, 10);
 }
 
-/** Keep only the last price per date. */
 function dedupeByDate(series: PriceSeries): PriceSeries {
   const map = new Map<string, number>();
   for (const [date, price] of series) {
