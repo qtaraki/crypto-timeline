@@ -1,17 +1,16 @@
-import type { CoinGeckoResponse, YahooChartResponse, MergedDataPoint } from './types';
+import type { PriceSeries, YahooChartResponse, MergedDataPoint } from './types';
 
 export function mergeTimeSeries(sources: {
-  btcData: PromiseSettledResult<CoinGeckoResponse>;
-  ethData: PromiseSettledResult<CoinGeckoResponse>;
+  btcData: PromiseSettledResult<PriceSeries>;
+  ethData: PromiseSettledResult<PriceSeries>;
   fbtcData: PromiseSettledResult<YahooChartResponse>;
   fethData: PromiseSettledResult<YahooChartResponse>;
 }): MergedDataPoint[] {
   const dateMap = new Map<string, MergedDataPoint>();
 
-  // Process CoinGecko data (timestamps in ms)
+  // Process crypto data (already normalized to [date, price] pairs)
   if (sources.btcData.status === 'fulfilled') {
-    for (const [tsMs, price] of sources.btcData.value.prices) {
-      const date = new Date(tsMs).toISOString().slice(0, 10);
+    for (const [date, price] of sources.btcData.value) {
       const existing = dateMap.get(date) || { date };
       existing.btc = price;
       dateMap.set(date, existing);
@@ -19,15 +18,14 @@ export function mergeTimeSeries(sources: {
   }
 
   if (sources.ethData.status === 'fulfilled') {
-    for (const [tsMs, price] of sources.ethData.value.prices) {
-      const date = new Date(tsMs).toISOString().slice(0, 10);
+    for (const [date, price] of sources.ethData.value) {
       const existing = dateMap.get(date) || { date };
       existing.eth = price;
       dateMap.set(date, existing);
     }
   }
 
-  // Process Yahoo Finance data (timestamps in seconds)
+  // Process Yahoo Finance ETF data (timestamps in seconds)
   if (sources.fbtcData.status === 'fulfilled') {
     const result = sources.fbtcData.value.chart.result?.[0];
     if (result) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { MergedDataPoint } from '../lib/types';
-import { fetchCoinGecko, fetchYahooETF } from '../lib/api';
+import { fetchCryptoPrices, fetchYahooETF } from '../lib/api';
 import { mergeTimeSeries } from '../lib/mergeTimeSeries';
 
 interface UseMarketDataReturn {
@@ -19,7 +19,6 @@ export function useMarketData(days: number): UseMarketDataReturn {
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(async () => {
-    // Cancel any in-flight request (handles StrictMode double-invoke)
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -29,25 +28,20 @@ export function useMarketData(days: number): UseMarketDataReturn {
     setEtfWarning(false);
 
     try {
-      // Stagger CoinGecko calls slightly to avoid rate limits
-      const btcData = await fetchCoinGecko('bitcoin', days).then(
-        (v) => ({ status: 'fulfilled' as const, value: v }),
-        (e) => ({ status: 'rejected' as const, reason: e }),
-      );
-
-      if (controller.signal.aborted) return;
-
-      const [ethData, fbtcData, fethData] = await Promise.allSettled([
-        fetchCoinGecko('ethereum', days),
+      // Fetch all 4 series in parallel — each crypto call internally
+      // tries CoinGecko → CoinCap → CoinPaprika before failing
+      const [btcData, ethData, fbtcData, fethData] = await Promise.allSettled([
+        fetchCryptoPrices('bitcoin', days),
+        fetchCryptoPrices('ethereum', days),
         fetchYahooETF('FBTC', days),
         fetchYahooETF('FETH', days),
       ]);
 
       if (controller.signal.aborted) return;
 
-      // If both crypto fetches failed, show the actual error
+      // If both crypto fetches failed, show error
       if (btcData.status === 'rejected' && ethData.status === 'rejected') {
-        const reason = btcData.reason?.message || 'Unknown error';
+        const reason = btcData.reason?.message || 'All data sources failed';
         setError(`Failed to fetch crypto data: ${reason}`);
         setIsLoading(false);
         return;

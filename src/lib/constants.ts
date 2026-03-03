@@ -1,6 +1,5 @@
 import type { SeriesKey } from './types';
 
-export const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 export const YAHOO_BASE_DIRECT = 'https://query1.finance.yahoo.com/v8/finance/chart';
 export const YAHOO_BASE_PROXY = '/api/yahoo/v8/finance/chart';
 

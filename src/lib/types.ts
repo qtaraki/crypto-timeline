@@ -6,11 +6,8 @@ export interface MergedDataPoint {
   feth?: number;
 }
 
-export interface CoinGeckoResponse {
-  prices: [number, number][];
-  market_caps: [number, number][];
-  total_volumes: [number, number][];
-}
+/** Normalized price series: array of [date_string, price_usd] */
+export type PriceSeries = [string, number][];
 
 export interface YahooChartResponse {
   chart: {
