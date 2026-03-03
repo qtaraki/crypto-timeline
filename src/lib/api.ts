@@ -16,18 +16,26 @@ const CRYPTO_SYMBOLS = {
 type CoinId = keyof typeof CRYPTO_SYMBOLS;
 
 /** Try each source in order, return the first that succeeds. */
-export async function fetchCryptoPrices(coinId: CoinId, days: number): Promise<PriceSeries> {
+export async function fetchCryptoPrices(
+  coinId: CoinId,
+  days: number,
+  signal?: AbortSignal,
+): Promise<PriceSeries> {
   const sources = [
-    () => fetchFromCoinGecko(coinId, days),
-    () => fetchFromCryptoCompare(coinId, days),
+    () => fetchFromCoinGecko(coinId, days, signal),
+    () => fetchFromCryptoCompare(coinId, days, signal),
   ];
 
   let lastError: Error | null = null;
   for (const source of sources) {
+    // Stop trying if the request was cancelled
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     try {
       const result = await source();
       if (result.length > 0) return result;
     } catch (err) {
+      // Don't catch abort errors — propagate them immediately
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
       lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
@@ -36,10 +44,14 @@ export async function fetchCryptoPrices(coinId: CoinId, days: number): Promise<P
 
 // --- CoinGecko (free, no key, CORS) ---
 
-async function fetchFromCoinGecko(coinId: CoinId, days: number): Promise<PriceSeries> {
+async function fetchFromCoinGecko(
+  coinId: CoinId,
+  days: number,
+  signal?: AbortSignal,
+): Promise<PriceSeries> {
   const id = CRYPTO_SYMBOLS[coinId].coingecko;
   const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
   const data: { prices: [number, number][] } = await res.json();
   return dedupeByDate(data.prices.map(([ts, price]) => [msToDate(ts), price]));
@@ -52,10 +64,14 @@ interface CryptoCompareDay {
   close: number;
 }
 
-async function fetchFromCryptoCompare(coinId: CoinId, days: number): Promise<PriceSeries> {
+async function fetchFromCryptoCompare(
+  coinId: CoinId,
+  days: number,
+  signal?: AbortSignal,
+): Promise<PriceSeries> {
   const fsym = CRYPTO_SYMBOLS[coinId].cryptocompare;
   const url = `https://min-api.cryptocompare.com/data/v2/histoday?fsym=${fsym}&tsym=USD&limit=${days}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`CryptoCompare ${res.status}`);
   const json: { Response: string; Data: { Data: CryptoCompareDay[] } } = await res.json();
   if (json.Response !== 'Success') throw new Error('CryptoCompare returned error');
@@ -69,13 +85,14 @@ async function fetchFromCryptoCompare(coinId: CoinId, days: number): Promise<Pri
 export async function fetchYahooETF(
   symbol: 'FBTC' | 'FETH',
   days: number,
+  signal?: AbortSignal,
 ): Promise<YahooChartResponse> {
   const range = YAHOO_RANGE_MAP[days] || '1mo';
   const base = isDev
     ? YAHOO_BASE_PROXY
     : (import.meta.env.VITE_YAHOO_BASE_URL || YAHOO_BASE_DIRECT);
   const url = `${base}/${symbol}?range=${range}&interval=1d`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`);
   return res.json();
 }

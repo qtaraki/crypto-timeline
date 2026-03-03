@@ -22,22 +22,21 @@ export function useMarketData(days: number): UseMarketDataReturn {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    const { signal } = controller;
 
     setIsLoading(true);
     setError(null);
     setEtfWarning(false);
 
     try {
-      // Fetch all 4 series in parallel — each crypto call internally
-      // tries CoinGecko → CoinCap → CoinPaprika before failing
       const [btcData, ethData, fbtcData, fethData] = await Promise.allSettled([
-        fetchCryptoPrices('bitcoin', days),
-        fetchCryptoPrices('ethereum', days),
-        fetchYahooETF('FBTC', days),
-        fetchYahooETF('FETH', days),
+        fetchCryptoPrices('bitcoin', days, signal),
+        fetchCryptoPrices('ethereum', days, signal),
+        fetchYahooETF('FBTC', days, signal),
+        fetchYahooETF('FETH', days, signal),
       ]);
 
-      if (controller.signal.aborted) return;
+      if (signal.aborted) return;
 
       // If both crypto fetches failed, show error
       if (btcData.status === 'rejected' && ethData.status === 'rejected') {
@@ -55,12 +54,12 @@ export function useMarketData(days: number): UseMarketDataReturn {
       const merged = mergeTimeSeries({ btcData, ethData, fbtcData, fethData });
       setData(merged);
     } catch (err) {
-      if (!controller.signal.aborted) {
+      if (!signal.aborted) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         setError(`Failed to fetch market data: ${msg}`);
       }
     } finally {
-      if (!controller.signal.aborted) {
+      if (!signal.aborted) {
         setIsLoading(false);
       }
     }
