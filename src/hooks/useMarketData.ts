@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { MergedDataPoint } from '../lib/types';
 import { fetchCryptoPrices, fetchYahooETF } from '../lib/api';
 import { mergeTimeSeries } from '../lib/mergeTimeSeries';
@@ -16,13 +16,14 @@ export function useMarketData(days: number): UseMarketDataReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [etfWarning, setEtfWarning] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
 
-  const fetchData = useCallback(async () => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const { signal } = controller;
+  // Monotonic counter — only the latest fetch ID can update state.
+  // This is immune to StrictMode double-firing and race conditions.
+  const fetchIdRef = useRef(0);
+
+  const fetchData = async () => {
+    const id = ++fetchIdRef.current;
+    const isStale = () => id !== fetchIdRef.current;
 
     setIsLoading(true);
     setError(null);
@@ -30,23 +31,20 @@ export function useMarketData(days: number): UseMarketDataReturn {
 
     try {
       const [btcData, ethData, fbtcData, fethData] = await Promise.allSettled([
-        fetchCryptoPrices('bitcoin', days, signal),
-        fetchCryptoPrices('ethereum', days, signal),
-        fetchYahooETF('FBTC', days, signal),
-        fetchYahooETF('FETH', days, signal),
+        fetchCryptoPrices('bitcoin', days),
+        fetchCryptoPrices('ethereum', days),
+        fetchYahooETF('FBTC', days),
+        fetchYahooETF('FETH', days),
       ]);
 
-      if (signal.aborted) return;
+      if (isStale()) return;
 
-      // If both crypto fetches failed, show error
       if (btcData.status === 'rejected' && ethData.status === 'rejected') {
         const reason = btcData.reason?.message || 'All data sources failed';
         setError(`Failed to fetch crypto data: ${reason}`);
-        setIsLoading(false);
         return;
       }
 
-      // If ETF fetches failed, show warning but continue
       if (fbtcData.status === 'rejected' || fethData.status === 'rejected') {
         setEtfWarning(true);
       }
@@ -54,23 +52,22 @@ export function useMarketData(days: number): UseMarketDataReturn {
       const merged = mergeTimeSeries({ btcData, ethData, fbtcData, fethData });
       setData(merged);
     } catch (err) {
-      if (!signal.aborted) {
+      if (!isStale()) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
         setError(`Failed to fetch market data: ${msg}`);
       }
     } finally {
-      if (!signal.aborted) {
+      if (!isStale()) {
         setIsLoading(false);
       }
     }
-  }, [days]);
+  };
 
   useEffect(() => {
     fetchData();
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, [fetchData]);
+    // Incrementing the counter on cleanup makes the in-flight fetch stale
+    return () => { fetchIdRef.current++; };
+  }, [days]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { data, isLoading, error, etfWarning, refetch: fetchData };
 }
